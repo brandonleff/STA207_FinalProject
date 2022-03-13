@@ -1,0 +1,336 @@
+---
+title: "Effects of Vaccination Policy and Season on Italy's Covid Cases"
+author: "Brandon Leff"
+date: "3/8/2022"
+output:
+  html_document:
+    df_print: paged
+    number_sections: yes
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.pos = 'H', echo = FALSE, message = FALSE,warning = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(kableExtra)
+covid <- read_csv("https://covid19.who.int/WHO-COVID-19-global-data.csv")
+vac <- read_csv("covid-vaccination-policy-updated.csv") %>% select(-Code)
+```
+
+# Abstract 
+
+In this project, analysis of the effect of season and vaccination policy on COVID-19 cases will be performed. After exploring the data set, Italy stood out as a country of interest from their difference in weather across season as well as their equal distribution of vaccination policy. To perform analysis, a 2-Way-ANOVA model was fit with log(weekly_average_new_cases) was chosen with season and vaccination policy as the 2 covariates. From the ANOVA output, both season (p = 2e-16) and vaccination policy (p = 9.96e-10) were found to be significant. Post-hoc tests such as Tukey's HSD test were performed to show that all seasons pairwise differences were significant except Fall and Spring as well as every level of vaccination policy compared to no vaccine availability were significant.
+
+# Introduction
+
+In this project, I will be searching into the effects of Season and Vaccination Policy on Covid-19 cases in Italy. The motivation of this analysis is to provide insight on the virus's virality in different times of the year and also how the accessibility of the vaccine affects Covid-19 cases. Some potential impacts of the results range from increased vaccination availability during different times of the year or to raise awareness that Covid-19 is able to spread easier during different times of the year. 
+
+# Background 
+
+To perform analysis on this topic I needed to have data. The data used in this project is a combination of two data sets I both obtained online. The first data set is from the World Health Organization's dashboard for Covid-19. This data set is pulled from the dashboard every time the data is read in updating for the current day's data. At the time of writing this, there are 187180 rows of data each representing a day for a specific country. There are 8 variables in the WHO data such as date reported, country, new cases, new deaths, and cumulative cases/deaths all organized per day. The second data set I used was obtained from OurWorldInData and is an updated vaccination policy data set based on country and date obtained. The main variable I included from this data set was vaccination policy which is a factor variable describing per country per day the availability of the Covid-19 vaccine. 
+
+The first task needed to be done on the data was to join the two data sets which was easily achieved by merging vaccination policy onto the WHO data through country and date. Now that the two data sets were joined, I made the decision to break down the data into the countries that are in the top 5% of cumulative cases. This reduced the unique number of countries in the analysis from 237 to only 12. Furthermore, I decided I wanted to focus on a specific country which ultimately was decided to be Italy. Italy has weather that greatly differs over the year. In Celsius, the average temperature in Winter is around 5 degrees while the average temperature in Summer is around 23 degrees. This is a big difference in temperature across seasons which could provide interesting insights on the effect of season on Covid-19 cases. 
+
+# Descriptive Analysis 
+
+After the data was successfully cleaned and filtered down to the adequate number of observations, I selected a model type and subsequent variables to include in the model. I chose to use a 2-Way-ANOVA model with weekly average of new cases being the response variable. The selected independent variables are season which is a factor variable grouped by 3 month periods in the year. (Winter: December, January, February Spring: March, April, May Summer: June, July, August Fall: September, October, November) and vaccination policy. Summary statistics and graphics of variables used in the model are shown below.
+
+```{r}
+names(vac) <- c("country", "date_reported", "vaccination_policy")
+names(covid) <- tolower(names(covid))
+covid$month <- month(covid$date_reported)
+month_levels <- c("1","2","3","4","5","6","7","8","9","10","11","12")
+covid$month <- factor(as.character(covid$month), levels = month_levels)
+covid$season <- ifelse(covid$month %in% c("12","1","2"), "Winter", NA)
+covid$season <- ifelse(covid$month %in% c("3","4","5"), "Spring", covid$season)
+covid$season <- ifelse(covid$month %in% c("6","7","8"), "Summer", covid$season)
+covid$season <- ifelse(covid$month %in% c("9","10","11"), "Fall", covid$season)
+ 
+data <- left_join(covid,vac, by = c("date_reported","country"))
+
+max_cumulative_cases <- data %>% group_by(country) %>% summarise(max_cum_cases = max(cumulative_cases)) %>% select(country,max_cum_cases) %>% distinct()
+per_95 <- quantile(max_cumulative_cases$max_cum_cases, 0.95)
+top5pct <- max_cumulative_cases %>% filter(max_cum_cases >= per_95)
+top5pct$country <- factor(top5pct$country)
+
+final_data <- data %>% filter(country %in% levels(top5pct$country))
+final_data$vaccination_policy <- factor(final_data$vaccination_policy)
+final_data$country <- factor(final_data$country)
+final_data$season <- factor(final_data$season)
+```
+
+```{r}
+weekly_data <- final_data
+weekly_data$week <- week(final_data$date_reported)
+weekly_data$year <- year(final_data$date_reported)
+agg_weekly <- aggregate(new_cases~country+week+year, FUN=mean, data=weekly_data, na.rm=TRUE)
+names(agg_weekly)[names(agg_weekly) == "new_cases"] <- "weekly_avg_cases"
+
+model_data <- left_join(weekly_data,agg_weekly, by = c("country","week","year"))
+
+italy_data <- model_data %>% filter(country == "Italy") %>% select(weekly_avg_cases,week,year,season,vaccination_policy) %>% distinct()
+
+italy_data$vaccination_policy <- factor(italy_data$vaccination_policy)
+```
+
+## Univariate Exploration
+
+```{r}
+n <- nrow(italy_data)
+lbls <- c("0","2","3","4","5")
+pct <- round(100*table(italy_data$vaccination_policy)/n)
+lab <- paste(lbls,pct)
+lab <- paste(lab,'%',sep='')
+pie(table(italy_data$vaccination_policy),labels=lab, main = "Italy: Vaccination Policy")
+```
+
+From the above pie chart for vaccination policy, Italy primarily (43%) had a 0 vaccination policy meaning that there was no availability of the vaccine at the time. There are smaller sections with some vaccine availability but the second largest percentage (33%) is for a 5 vaccination policy meaning universal availability. 
+
+```{r}
+italy_data$season <- factor(italy_data$season)
+n <- nrow(italy_data)
+lbls <- levels(italy_data$season)
+pct <- round(100*table(italy_data$season)/n)
+lab <- paste(lbls,pct)
+lab <- paste(lab,'%',sep='')
+pie(table(italy_data$season),labels=lab, main = "Italy: Season")
+```
+
+From the pie chart above, it can be seen that the data is roughly evenly distributed across season with a slight favor towards Winter (31%) which makes sense since COVID-19 started to spread in the winter/spring months of 2020.
+
+```{r}
+graph_data <- italy_data %>% filter(weekly_avg_cases > 1)
+hist(graph_data$weekly_avg_cases, main = "Italy: Histogram for Weekly Average New Cases", xlab = "Weekly Average New Cases")
+```
+
+The histogram above shows that the response variable for our ANOVA model is very heavily skewed right which would violate our normality assumption. A transformation of the data is necessary.
+
+```{r}
+hist(log(graph_data$weekly_avg_cases), main = "Italy: Histogram for Log(Weekly Average New Cases)", xlab = "log(Weekly Average New Cases)", xlim = c(0,14))
+```
+
+After taking the log of the weekly average new cases, the above histogram was plotted. The data may have a slight skew left with a few observations near 4, but overall the data looks normally distributed so I will proceed with log(weekly average new cases) as my response variable.
+
+## Bivariate Exploration
+
+```{r}
+library(reshape2)
+season_long <- graph_data %>% select(-week,-year,-vaccination_policy) %>% melt(id = "season")
+ggplot(season_long, aes(x = variable, y = value, color = season)) + geom_boxplot()
+```
+
+There seems to be very different distributions of weekly cases based on season. Winter months have the highest median weekly cases and a drastically different spread compared to other seasons. There also appears to be many outliers.
+
+```{r}
+vac_long <- graph_data %>% select(-week,-year,-season) %>% melt(id = "vaccination_policy") %>% na.omit()
+ggplot(vac_long, aes(x = variable, y = value, color = vaccination_policy)) + geom_boxplot()
+```
+
+Like the season plot, there is a drastic difference in spread of weekly cases between vaccination policy 5 and the other levels. Vaccination policy 2 actually seems to have the highest median weekly cases, but the spread is very minimal.
+
+# Inferential Analysis
+
+## ANOVA Model
+
+The final model chosen is a 2-Way-ANOVA model designated as following:
+
+$$Y_{ijk} = \mu + \alpha_{i} + \beta_{j} + \alpha\beta_{ij} + \epsilon_{ijk}, i = 1,...,4, j = 1,...,6, k = 1,2,...,n_{ij}$$
+
+with the following constraints:
+
+$$ \sum_i \alpha_{i} = 0, \sum_j \beta_j = 0, \sum_i \alpha\beta_{ij} = 0, \sum_j \alpha\beta_{ij} = 0$$ for all $i,j$, and $\epsilon_{ijk}$ are i.i.d $N(0,\sigma^2)$
+
+Here, $\mu$ represents the overall average of average weekly new cases, $\alpha_{i}$ are the main effects of season, $\beta_j = 0$ are the main effects of vaccination policy, $\alpha\beta_{ij}$ are the interaction effects, and $\epsilon_{ijk}$ are the errors.
+
+```{r}
+anova_data <- italy_data %>% filter(weekly_avg_cases > 1) %>% na.omit()
+
+italy_model <- aov(log(weekly_avg_cases) ~ season + vaccination_policy + season:vaccination_policy, data = anova_data)
+summary(italy_model)
+```
+
+From a preliminary runthrough of the ANOVA Output without further tests for significance, all variables and their interactions seem to be significant to varying extents. The main effects of season (p = 2e-16) are the most significant with respect to average weekly new cases, the main effects of vaccination policy (p = 5.09e-10) are significant with respect to average weekly new cases, and lastly their interaction term (p = 1.53e-7) is also significant with respect to average weekly new cases. This indicates that the interaction term is necessary for the model as their is some sort of interaction that is important between the variables, but I will plot their interaction plot to make sure.
+
+```{r}
+interaction.plot(anova_data$vaccination_policy,anova_data$season,log(anova_data$weekly_avg_cases), trace.label = "Season", xlab = "Vaccination Policy", ylab = "ln(weekly_average_cases)")
+```
+
+From the above interaction plot, not all lines are parallel with a point of intersection as well indicating that there is an interaction between vaccination policy and season, however there are too many interactions that are not represented due to the lack of data overlapping during those groups to justify using the interaction term, so I will remove the interaction term.
+
+```{r}
+italy_model_noint <- italy_model <- aov(log(weekly_avg_cases) ~ season + vaccination_policy, data = anova_data)
+```
+
+## Outlier Analysis
+
+Before finalizing the model, analysis on influential points is necessary. To do this, I will calculate Cook's Distance and decide if points need to be removed from the data set.
+
+```{r}
+par(mfrow=c(2,2))
+cooks <- cooks.distance(italy_model_noint)
+plot(cooks, pch="*", cex=2, main="Influential Obs by Cooks distance",)  # plot cook's distance
+abline(h = 4*mean(cooks, na.rm=T), col="red")  # add cutoff line
+```
+
+From the above graph, there are 5 points in the model that surpass the red line which represents the cutoff for potential influential points. This cutoff line is defined as 4 times the mean of the cook's distance points across the model. These 5 points will be removed from the model.
+
+```{r}
+influential <- as.numeric(names(cooks)[(cooks > 4*mean(cooks, na.rm=T))])
+
+anova_data_ao <- anova_data[-influential,]
+```
+
+## Final ANOVA Output
+
+After adjusting for outliers and removing the interaction term for the model, the final 2-Way-ANOVA additive model was fit:
+
+$$Y_{ijk} = \mu + \alpha_{i} + \beta_{j} + \epsilon_{ijk}, i = 1,...,4, j = 1,...,6, k = 1,2,...,n_{ij}$$
+
+with the following constraints:
+
+$$ \sum_i \alpha_{i} = 0, \sum_j \beta_j = 0$$ for all $i,j$, and $\epsilon_{ijk}$ are i.i.d $N(0,\sigma^2)$
+
+Here, $\mu$ represents the overall average of average weekly new cases, $\alpha_{i}$ are the main effects of season, $\beta_j = 0$ are the main effects of vaccination policy, and $\epsilon_{ijk}$ are the errors.
+
+Assumptions:
+
+1.) Homogeneity of variance meaning that the variation around the mean for each group is similar. 
+
+2.) Independence of observations $Y_{ijk}$
+
+3.) Normally distributed dependent variable.
+
+```{r}
+italy_model_ao<- aov(log(weekly_avg_cases) ~ season + vaccination_policy, data = anova_data_ao)
+summary(italy_model_ao)
+```
+
+The main effects of season (p = 2e-16) are the most significant with respect to average weekly new cases and the main effects of vaccination policy (p = 9.96e-10) are significant with respect to average weekly new cases.
+
+## F-tests for Significance
+
+```{r}
+season_reduced <- aov(log(weekly_avg_cases) ~ season, anova_data_ao)
+vaccination_policy_reduced <- aov(log(weekly_avg_cases) ~ vaccination_policy, anova_data_ao)
+```
+
+### Season
+
+```{r}
+anova(season_reduced,italy_model_ao)
+```
+
+With (p = 9.961e-10), we reject the null hypothesis that the effect of season is absent. There is statistically enough evidence to show that there is an effect on ln(weekly_average_cases) from season.
+
+### Vaccination Policy
+
+```{r}
+anova(vaccination_policy_reduced,italy_model_ao)
+```
+
+With (p = 2.2e-16), we reject the null hypothesis that the effect of vaccination policy is absent. There is statistically enough evidence to show that there is an effect on ln(weekly_average_cases) from vaccination policy.
+
+# Sensitivity Analysis
+
+```{r}
+par(mfrow=c(2,2))
+plot(italy_model_ao)
+```
+
+From the above graphs, you can see that all of our assumptions from the 2-Way-ANOVA model are satisfied. From the QQ plot, the points do not deviate from the line meaning that our residuals follow a normal distribution. From the residuals vs fitted plot, there is some slight deviation of vertical distribution of residuals across fitted values, but the trend line is essentially flat designating that our assumption of equal variance is satisfied. Lastly from the data itself the final assumption of observations being independent is satisfied as one week's new cases does not affect the next week's new cases at least to the extent of the model. There are other confounding variables that could cause concern but for the model's sake the assumptions are satisfied.
+
+# Tukey's Honestly-Significant-Difference Test
+
+```{r}
+TukeyHSD(italy_model_ao)
+```
+
+Tukey's HSD is a post-hoc test that shows pairwise differences between the 4 seasons and between the 6 factor levels of vaccination policy. Diff is the average difference, lwr is the lower bound of the 95% confidence interval and upr is the upper bound of the 95% confidence interval. From the test results, we can see that according to the significance level $(\alpha = 0.05)$, there are significant differences between:
+
+*Summer and Fall
+
+*Winter and Fall
+
+*Summer and Spring
+
+*Winter and Spring
+
+*Winter and Summer
+
+*Vaccination Policy 2 and 0
+
+*Vaccination Policy 3 and 0
+
+*Vaccination Policy 4 and 0
+
+*Vaccination Policy 5 and 0
+
+but no difference between:
+
+*Spring and Fall
+
+*Vaccination Policy 3 and 2
+
+*Vaccination Policy 4 and 2
+
+*Vaccination Policy 5 and 2
+
+*Vaccination Policy 4 and 3
+
+*Vaccination Policy 5 and 3
+
+*Vaccination Policy 5 and 4
+
+# Bartlett's Test for Equal Variance
+
+```{r}
+bartlett.test(log(weekly_avg_cases) ~ season, data = anova_data_ao)
+```
+
+From the Bartlett test of homogeneity of variances above, with (p = 0.0822) we fail to reject the null hypothesis meaning there isn't sufficient evidence that the 4 seasons have different variances.
+
+```{r}
+bartlett.test(log(weekly_avg_cases) ~ vaccination_policy, data = anova_data_ao)
+```
+
+From the Bartlett test of homogeneity of variances above, with (p = 7.345e-12) we reject the null hypothesis meaning there is sufficient evidence that the 6 levels of vaccination policy have different variances. This is okay however as ANOVA is robust to heterogeneity and our other group passes the Bartlett test.
+
+```{r}
+test <- anova_data %>% group_by(vaccination_policy) %>% summarize(var = var(log(weekly_avg_cases)))
+```
+
+# Discussion 
+
+After performing the above analysis, we found that both season (p = 2e-16) and vaccination policy (p = 9.96e-10) have significant effects on average weekly new cases of COVID-19 in Italy. 
+
+From Tukey's HSD we found that there is a significant difference in the number of average weekly new cases across all vaccination policy levels compared to the 0 vaccination policy level which makes sense in the real world as any vaccination availability would affect the number of cases rather than having no vaccination policy. From Tukey's HSD we found that there was not a statistically significant difference of average weekly new cases of COVID-19 across vaccination policies above 1 compared to one another. (Ex: 2 vs 3 or 4 vs 5). I was surprised by this outcome as there was no significant difference between the vaccine being available to only a certain group compared to full availability, but the difference between any availability and none was meaningful. 
+
+From Tukey's HSD, we found that there is a significant difference between all pairwise differences of season besides Spring and Fall. This makes sense as the weather in Italy changes drastically between Summer and Winter so all pairwise differences involving those seasons were significant but not when those seasons weren't involved. This could be possibly explained as Spring and Fall having similar conditions or weather so there may be no difference. 
+
+There are slight violations of assumptions of equal variance specifically across vaccination policy but this could be due to outside factors such as increased tourism before vaccination policy increased or other factors such as the rise of variants like the Delta or Omicron variant. 
+
+Overall, the purpose of this analysis was achieved as it was shown that both season and vaccination policy play a role in the average number of weekly new cases. Potential future analysis that could branch from this are physically looking at the role of weather instead of month as season, as well as mask policy rather than vaccination policy. It would also be beneficial to try to factor in time frames of variants into the model. 
+
+# Acknowledgement {-}
+
+I have worked with my group in discussion sections as well as the TA Ms. Zitong Zhang.
+
+# Reference {-}
+
+Bevans, Rebecca. “An Introduction to the Two-Way ANOVA.” Scribbr, 7 Jan. 2021, https://www.scribbr.com/statistics/two-way-anova/. 
+
+Varshney, Paras. “Q-Q Plots Explained.” Medium, Towards Data Science, 17 Oct. 2020, https://towardsdatascience.com/q-q-plots-explained-5aa8495426c0. 
+
+# Appendix {-}
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+```
+
+# Session info {-}
+
+```{r}
+sessionInfo()
+```
