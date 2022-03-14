@@ -22,7 +22,7 @@ vac <- read_csv("covid-vaccination-policy-updated.csv") %>% select(-Code)
 
 # Abstract 
 
-In this project, analysis of the effect of season and vaccination policy on COVID-19 cases will be performed. After exploring the data set, Italy stood out as a country of interest from their difference in weather across season as well as their equal distribution of vaccination policy. To perform analysis, a 2-Way-ANOVA model was fit with log(weekly_average_new_cases) was chosen with season and vaccination policy as the 2 covariates. From the ANOVA output, both season (p = 2e-16) and vaccination policy (p = 9.96e-10) were found to be significant. Post-hoc tests such as Tukey's HSD test were performed to show that all seasons pairwise differences were significant except Fall and Spring as well as every level of vaccination policy compared to no vaccine availability were significant.
+In this project, analysis of the effect of season and vaccination policy on COVID-19 cases will be performed. After exploring the data set, Italy stood out as a country of interest from their difference in weather across season as well as their equal distribution of vaccination policy. To perform analysis, a 2-Way-ANOVA model was fit with log(weekly_average_new_cases) as the dependent variable and season and vaccination policy as the 2 covariates. From the ANOVA output, both season (p = 2e-16) and vaccination policy (p = 9.96e-10) were found to be significant. Post-hoc tests such as Tukey's HSD test were performed to show that all seasons pairwise differences were significant except Fall and Spring as well as every level of vaccination policy compared to no vaccine availability being significant.
 
 # Introduction
 
